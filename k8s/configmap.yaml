@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-pipeline-config
+  namespace: streaming-metrics
+  labels:
+    app.kubernetes.io/name: streaming-window-metrics
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  API_PORT: "8000"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.streaming-metrics.svc.cluster.local:9092"
+  KAFKA_PRIMARY_TOPIC: "metrics-primary"
+  KAFKA_DLQ_TOPIC: "metrics-dlq"
+  KAFKA_GROUP_ID: "metrics-aggregator-group"
+  KAFKA_DLQ_GROUP_ID: "metrics-dlq-group"
+  REDIS_HOST: "redis.streaming-metrics.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_CAPACITY: "500.0"
+  RATE_LIMIT_REFILL_RATE: "250.0"
+  WINDOW_SIZE_SECONDS: "60"
+  WINDOW_WATERMARK_DELAY_SECONDS: "2"
+  WINDOW_FLUSH_INTERVAL_SECONDS: "1.0"
+  DB_POOL_MIN_SIZE: "2"
+  DB_POOL_MAX_SIZE: "15"
+  DB_MAX_RETRIES: "5"
+  DB_RETRY_BASE_DELAY: "1.0"

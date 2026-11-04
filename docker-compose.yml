@@ -1,0 +1,156 @@
+services:
+  # =====================================================================
+  # Apache Kafka (KRaft mode - Zero Zookeeper overhead)
+  # =====================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: swm-kafka
+    hostname: kafka
+    ports:
+      - "${PORT_KAFKA_HOST:-29092}:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${PORT_KAFKA_HOST:-29092}"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "4L622nShTUiBenYhPXluYQ"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - swm_net
+
+  # =====================================================================
+  # Redis 7 (Token Bucket Rate Limiting & Window State)
+  # =====================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: swm-redis
+    ports:
+      - "${PORT_REDIS:-6380}:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - swm_net
+
+  # =====================================================================
+  # PostgreSQL (Local target compatible with Neon DB)
+  # =====================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: swm-postgres
+    ports:
+      - "${PORT_POSTGRES:-5433}:5432"
+    environment:
+      POSTGRES_DB: metrics_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - swm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d metrics_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - swm_net
+
+  # =====================================================================
+  # Phase 1: API Gateway (FastAPI with Token Bucket Rate Limiting)
+  # =====================================================================
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gateway
+    container_name: swm-gateway
+    ports:
+      - "${PORT_GATEWAY:-8001}:8000"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      REDIS_HOST: "redis"
+      REDIS_PORT: 6379
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/metrics_db"
+      API_PORT: 8000
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_CAPACITY: 100.0
+      RATE_LIMIT_REFILL_RATE: 50.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./gateway:/app/gateway
+      - ./config:/app/config
+      - ./db:/app/db
+    networks:
+      - swm_net
+
+  # =====================================================================
+  # Phase 2: Primary Worker (60s Window Aggregator & DB Flush)
+  # =====================================================================
+  primary-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.primary_worker
+    container_name: swm-primary-worker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      REDIS_HOST: "redis"
+      REDIS_PORT: 6379
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/metrics_db"
+      WINDOW_SIZE_SECONDS: 60
+      WINDOW_WATERMARK_DELAY_SECONDS: 2
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - swm_net
+
+  # =====================================================================
+  # Phase 3: Secondary Worker (DLQ Retry Consumer)
+  # =====================================================================
+  dlq-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dlq_worker
+    container_name: swm-dlq-worker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/metrics_db"
+      DB_MAX_RETRIES: 5
+      DB_RETRY_BASE_DELAY: 1.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - swm_net
+
+networks:
+  swm_net:
+    driver: bridge
+
+volumes:
+  swm_pgdata:

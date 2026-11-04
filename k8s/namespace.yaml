@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: streaming-metrics
+  labels:
+    app.kubernetes.io/name: streaming-window-metrics
+    app.kubernetes.io/part-of: metrics-pipeline

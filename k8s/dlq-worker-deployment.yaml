@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dlq-worker
+  namespace: streaming-metrics
+  labels:
+    app.kubernetes.io/name: dlq-worker
+    app.kubernetes.io/component: retry-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dlq-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dlq-worker
+        app.kubernetes.io/component: retry-processor
+    spec:
+      containers:
+        - name: dlq-worker
+          image: metrics-dlq-worker:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: metrics-pipeline-config
+            - secretRef:
+                name: metrics-pipeline-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
