@@ -26,12 +26,12 @@ flowchart TD
 
     subgraph "Phase 3: Storage & Resilience"
         WindowClose -->|Acquire Distributed Lock| DBFlush[DB Writer]
-        DBFlush -->|Try Upsert| Postgres[(PostgreSQL / Neon DB)]
-        DBFlush -.->|Catch Exception (DB Failure)| DLQPub[Publish to DLQ]
+        DBFlush -->|Try Upsert| Postgres[("PostgreSQL / Neon DB")]
+        DBFlush -.->|"Catch Exception (DB Failure)"| DLQPub["Publish to DLQ"]
         DLQPub --> KT_DLQ[("Kafka: metrics-dlq")]
         KT_DLQ --> DLQWorker[Secondary DLQ Worker]
         DLQWorker -->|Exponential Backoff & Jitter| Postgres
-        DLQWorker -.->|Max Retries Exceeded| DeadLetterTable[(dead_letter_records Table)]
+        DLQWorker -.->|Max Retries Exceeded| DeadLetterTable[("dead_letter_records Table")]
     end
 
     subgraph "Phase 4: Autoscaling"
