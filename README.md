@@ -8,34 +8,34 @@ A distributed, fault-tolerant, high-throughput metrics ingestion and tumbling-wi
 
 ```mermaid
 flowchart TD
-    Client[High-Throughput Metric Producers] -->|POST /metrics| Gateway[FastAPI Gateway]
+    Client["High-Throughput Metric Producers"] -->|"POST /metrics"| Gateway["FastAPI Gateway"]
     
-    subgraph "Phase 1: Ingestion & Load Shedding"
-        Gateway -->|Atomic Lua Check| RedisTB[(Redis Token Bucket)]
-        RedisTB -- Shed Load (HTTP 429) --> Client
-        Gateway -->|Accepted Payloads| KP[Kafka Producer]
-        KP -->|Publish| KT_Primary[("Kafka: metrics-primary")]
+    subgraph Phase1["Phase 1: Ingestion & Load Shedding"]
+        Gateway -->|"Atomic Lua Check"| RedisTB[("Redis Token Bucket")]
+        RedisTB -- "Shed Load (HTTP 429)" --> Client
+        Gateway -->|"Accepted Payloads"| KP["Kafka Producer"]
+        KP -->|"Publish"| KT_Primary[("Kafka: metrics-primary")]
     end
 
-    subgraph "Phase 2: Stream Processing & Windowing"
-        KT_Primary -->|Consumer Group| Worker[Primary Stream Worker]
-        Worker -->|In-Memory Buffer| MemBuf[Micro-Batch Accumulator]
-        MemBuf -->|Atomic Sync| RedisWin[(Redis Window State)]
-        RedisWin -->|60s Tumbling Window Close| WindowClose{Window Expired?}
+    subgraph Phase2["Phase 2: Stream Processing & Windowing"]
+        KT_Primary -->|"Consumer Group"| Worker["Primary Stream Worker"]
+        Worker -->|"In-Memory Buffer"| MemBuf["Micro-Batch Accumulator"]
+        MemBuf -->|"Atomic Sync"| RedisWin[("Redis Window State")]
+        RedisWin -->|"60s Tumbling Window Close"| WindowClose{"Window Expired?"}
     end
 
-    subgraph "Phase 3: Storage & Resilience"
-        WindowClose -->|Acquire Distributed Lock| DBFlush[DB Writer]
-        DBFlush -->|Try Upsert| Postgres[("PostgreSQL / Neon DB")]
+    subgraph Phase3["Phase 3: Storage & Resilience"]
+        WindowClose -->|"Acquire Distributed Lock"| DBFlush["DB Writer"]
+        DBFlush -->|"Try Upsert"| Postgres[("PostgreSQL / Neon DB")]
         DBFlush -.->|"Catch Exception (DB Failure)"| DLQPub["Publish to DLQ"]
         DLQPub --> KT_DLQ[("Kafka: metrics-dlq")]
-        KT_DLQ --> DLQWorker[Secondary DLQ Worker]
-        DLQWorker -->|Exponential Backoff & Jitter| Postgres
-        DLQWorker -.->|Max Retries Exceeded| DeadLetterTable[("dead_letter_records Table")]
+        KT_DLQ --> DLQWorker["Secondary DLQ Worker"]
+        DLQWorker -->|"Exponential Backoff & Jitter"| Postgres
+        DLQWorker -.->|"Max Retries Exceeded"| DeadLetterTable[("dead_letter_records Table")]
     end
 
-    subgraph "Phase 4: Autoscaling"
-        HPA[Kubernetes HPA (CPU > 70%)] -.->|Scale Out / In| Worker
+    subgraph Phase4["Phase 4: Autoscaling"]
+        HPA["Kubernetes HPA (CPU > 70%)"] -.->|"Scale Out / In"| Worker
     end
 ```
 
